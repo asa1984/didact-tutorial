@@ -1,6 +1,7 @@
 type Fiber = {
   type: any;
   props: any;
+  hooks: any[] | null;
   dom: any | null;
   parent: Fiber;
   child: Fiber | null;
@@ -82,7 +83,7 @@ const isGone = (_prev: any, next: any) => (key: string) => !(key in next);
 function updateDom(dom: HTMLElement, prevProps: any, nextProps: any) {
   // Delete modified event listeners temporary
   Object.keys(prevProps)
-    .filter(isProperty)
+    .filter(isEvent)
     .filter((key) => !(key in nextProps) || isNew(prevProps, nextProps)(key))
     .forEach((name) => {
       const eventType = name.toLowerCase().substring(2);
@@ -143,31 +144,6 @@ function workLoop(deadline: IdleDeadline) {
 
 requestIdleCallback(workLoop);
 
-// function performUnitOfWork(fiber: Fiber) {
-//   // step 1
-//   if (!fiber.dom) {
-//     fiber.dom = createDom(fiber);
-//   }
-//
-//   // step 2
-//   const elements = fiber.props.children;
-//   reconcileChildren(fiber, elements);
-//
-//   // step 3
-//   if (fiber.child) {
-//     return fiber.child;
-//   }
-//
-//   let nextFiber = fiber;
-//   while (nextFiber) {
-//     if (nextFiber.sibling) {
-//       return nextFiber.sibling;
-//     }
-//
-//     nextFiber = nextFiber.parent;
-//   }
-// }
-
 function performUnitOfWork(fiber: Fiber) {
   const isFunctionComponent = fiber.type instanceof Function;
   if (isFunctionComponent) {
@@ -187,9 +163,46 @@ function performUnitOfWork(fiber: Fiber) {
   }
 }
 
+let wipFiber: Fiber | null = null;
+let hookIndex: any = null;
+
 function updateFunctionComponent(fiber: Fiber) {
+  wipFiber = fiber;
+  hookIndex = 0;
+  wipFiber.hooks = [];
   const children = [fiber.type(fiber.props)];
   reconcileChildren(fiber, children);
+}
+
+function useState<T>(
+  initial: T,
+): [T, (action: (prevState: T) => void) => void] {
+  const oldHook = wipFiber?.alternate?.hooks?.[hookIndex];
+  const hook = {
+    state: oldHook ? (oldHook.state as T) : initial,
+    queue: [] as any[],
+  };
+
+  const actions: any[] = oldHook ? oldHook.queue : [];
+  actions.forEach((action) => {
+    hook.state = action(hook.state);
+  });
+
+  const setState = (action: (prevState: T) => void) => {
+    hook.queue.push(action);
+
+    wipRoot = {
+      dom: currentRoot.dom,
+      props: currentRoot.props,
+      alternate: currentRoot,
+    };
+    nextUnitOfWork = wipRoot;
+    deletions = [];
+  };
+
+  wipFiber?.hooks?.push(hook);
+  hookIndex++;
+  return [hook.state, setState];
 }
 
 function updateHostComponent(fiber: Fiber) {
@@ -211,11 +224,12 @@ function reconcileChildren(wipFiber: any, elements: any[]) {
 
     const sameType = oldFiber && element && element.type === oldFiber.type;
 
-    // update DOM node
+    // Update DOM node
     if (sameType) {
       newFiber = {
         type: oldFiber.type,
         props: element.props,
+        hooks: null,
         dom: oldFiber.dom,
         parent: wipFiber,
         child: null,
@@ -225,11 +239,12 @@ function reconcileChildren(wipFiber: any, elements: any[]) {
       };
     }
 
-    // add DOM node
+    // Add DOM node
     if (element && !sameType) {
       newFiber = {
         type: element.type,
         props: element.props,
+        hooks: null,
         dom: null,
         parent: wipFiber,
         child: null,
@@ -239,10 +254,14 @@ function reconcileChildren(wipFiber: any, elements: any[]) {
       };
     }
 
-    // delete DOM node
+    // Delete DOM node
     if (oldFiber && !sameType) {
       oldFiber.effectTag = "DELETION";
       deletions.push(oldFiber);
+    }
+
+    if (oldFiber) {
+      oldFiber = oldFiber.sibling;
     }
 
     if (index === 0) {
@@ -262,12 +281,7 @@ function createDom(fiber: Fiber) {
       ? document.createTextNode("")
       : document.createElement(fiber.type);
 
-  const isProperty = (key: string) => key !== "children";
-  Object.keys(fiber.props)
-    .filter(isProperty)
-    .forEach((name) => {
-      dom[name] = fiber.props[name];
-    });
+  updateDom(dom, {}, fiber.props);
 
   return dom;
 }
@@ -275,21 +289,26 @@ function createDom(fiber: Fiber) {
 const Didact = {
   createElement,
   render,
+  useState,
 };
 
-function App(props: { name: string }) {
-  return <h1>Hi {props.name}</h1>;
-}
-
 /** @jsx Didact.createElement */
-// const element = (
-//   <div style="background: salmon">
-//     <h1>Hello World</h1>
-//     <h2 style="text-align:right">from Didact</h2>
-//   </div>
-// );
-
-const element = <App name="foo" />;
+function Counter() {
+  const [count, setCount] = Didact.useState(0);
+  return (
+    <div>
+      <h1>Counter</h1>
+      <button
+        onClick={() => {
+          setCount((prev) => prev + 1);
+        }}
+      >
+        Count: {count}
+      </button>
+    </div>
+  );
+}
+const element = <Counter />;
 
 const container = document.getElementById("root");
 if (!container) throw "Root element was not found";
