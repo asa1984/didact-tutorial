@@ -1,11 +1,40 @@
-import type { Fiber } from "./types";
-import { updateDom } from "./dom";
+import type { Fiber, RootFiber } from "./types";
 import { createElement } from "./jsx";
+import { createDom, updateDom } from "./dom";
 
 let nextUnitOfWork: any = null;
-let currentRoot: any = null;
-let wipRoot: any = null;
+let currentRoot: RootFiber | null = null;
+let wipRoot: RootFiber | null = null;
 let deletions: any[] = [];
+
+function render(element: any, container: HTMLElement) {
+  wipRoot = {
+    dom: container,
+    props: {
+      children: [element],
+    },
+    hooks: null,
+    child: null,
+    sibling: null,
+    alternate: currentRoot,
+  };
+  deletions = [];
+  nextUnitOfWork = wipRoot;
+}
+
+function workLoop(deadline: IdleDeadline) {
+  let shouldYeield = false;
+  while (nextUnitOfWork && !shouldYeield) {
+    nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
+    shouldYeield = deadline.timeRemaining() < 1;
+  }
+
+  if (!nextUnitOfWork && wipRoot) {
+    commitRoot();
+  }
+
+  requestIdleCallback(workLoop);
+}
 
 function commitRoot() {
   deletions.forEach(commitWork);
@@ -42,32 +71,6 @@ function commitDeletion(fiber: Fiber, domParent: any) {
     if (!fiber.child) return;
     commitDeletion(fiber.child, domParent);
   }
-}
-
-function render(element: any, container: HTMLElement) {
-  wipRoot = {
-    dom: container,
-    props: {
-      children: [element],
-    },
-    alternate: currentRoot,
-  };
-  deletions = [];
-  nextUnitOfWork = wipRoot;
-}
-
-function workLoop(deadline: IdleDeadline) {
-  let shouldYeield = false;
-  while (nextUnitOfWork && !shouldYeield) {
-    nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
-    shouldYeield = deadline.timeRemaining() < 1;
-  }
-
-  if (!nextUnitOfWork && wipRoot) {
-    commitRoot();
-  }
-
-  requestIdleCallback(workLoop);
 }
 
 function performUnitOfWork(fiber: Fiber) {
@@ -117,9 +120,12 @@ function useState<T>(
     hook.queue.push(action);
 
     wipRoot = {
-      dom: currentRoot.dom,
-      props: currentRoot.props,
+      dom: currentRoot!.dom,
+      props: currentRoot!.props,
+      hooks: null,
       alternate: currentRoot,
+      child: null,
+      sibling: null,
     };
     nextUnitOfWork = wipRoot;
     deletions = [];
@@ -198,17 +204,6 @@ function reconcileChildren(wipFiber: any, elements: any[]) {
     prevSibling = newFiber;
     index++;
   }
-}
-
-function createDom(fiber: Fiber) {
-  const dom =
-    fiber.type === "TEXT_ELEMENT"
-      ? document.createTextNode("")
-      : document.createElement(fiber.type);
-
-  updateDom(dom, {}, fiber.props);
-
-  return dom;
 }
 
 // Bootstrap

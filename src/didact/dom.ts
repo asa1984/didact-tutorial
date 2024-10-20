@@ -1,8 +1,21 @@
+import type { Fiber } from "./types";
+
 const isEvent = (key: string) => key.startsWith("on");
 const isProperty = (key: string) => key !== "children" && !isEvent(key);
 const isNew = (prev: any, next: any) => (key: string) =>
   prev[key] !== next[key];
 const isGone = (_prev: any, next: any) => (key: string) => !(key in next);
+
+export function createDom(fiber: Fiber) {
+  const dom =
+    fiber.type === "TEXT_ELEMENT"
+      ? document.createTextNode("")
+      : document.createElement(fiber.type);
+
+  updateDom(dom, {}, fiber.props);
+
+  return dom;
+}
 
 export function updateDom(dom: HTMLElement, prevProps: any, nextProps: any) {
   // Remove changed event listeners temporary

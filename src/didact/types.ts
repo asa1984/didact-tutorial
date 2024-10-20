@@ -7,5 +7,14 @@ export type Fiber = {
   child: Fiber | null;
   sibling: Fiber | null;
   alternate: Fiber | null;
-  effectTag?: string;
+  effectTag?: "PLACEMENT" | "UPDATE" | "DELETION";
+};
+
+export type RootFiber = {
+  props: any;
+  hooks: any[] | null;
+  dom: any | null;
+  child: Fiber | null;
+  sibling: Fiber | null;
+  alternate: RootFiber | null;
 };
